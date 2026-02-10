@@ -197,22 +197,22 @@ def get_trainer(model, model_type, lat_dataloader, sft_dataloader, lat_config, p
     print("Setting up LAT trainer...")
     # Set the attack hyperparameters
     if model_type == 'llama2':  # use llama2-7b
-        adv_loss_coefs = {"toward": 0.5, "away": 0.5,}
-        def_loss_coefs = {"sft": 1.5, "toward": 0.5, "away": 0.5,}
+        adv_loss_coefs = lat_config['adv_loss_coefs']
+        def_loss_coefs = lat_config['def_loss_coefs']
         inner_learning_rate = 5e-2
         outer_learning_rate = 2e-5
         epsilon = 6.0
         add_completions_pgd = False
     elif model_type == 'llama3': # use llama3-8b
-        adv_loss_coefs = {"toward": 0.5, "away": 0.5,}
-        def_loss_coefs = {"kl": 0.1, "toward": 0.5, "away": 0.5,}
+        adv_loss_coefs = lat_config['adv_loss_coefs']
+        def_loss_coefs = lat_config['def_loss_coefs']
         inner_learning_rate = 1e-3
         outer_learning_rate = 8e-5
         epsilon = 6.0
         add_completions_pgd = True
     elif model_type == 'qwen3': # use qwen3-8b
-        adv_loss_coefs = {"toward": 0.5, "away": 0.5,}
-        def_loss_coefs = {"kl": 0.1, "toward": 0.5, "away": 0.5,}
+        adv_loss_coefs = lat_config['adv_loss_coefs']
+        def_loss_coefs = lat_config['def_loss_coefs']
         inner_learning_rate = 1e-3
         outer_learning_rate = 8e-5
         epsilon = 6.0
@@ -224,7 +224,7 @@ def get_trainer(model, model_type, lat_dataloader, sft_dataloader, lat_config, p
         sft_dataloader=sft_dataloader,  # dataloader for supervised finetuning
         adv_loss_coefs=adv_loss_coefs,  # adversary's loss coefs
         def_loss_coefs=def_loss_coefs,  # model's loss coefs
-        pgd_layers=["embedding", 8, 16, 24, 30],  # what layers to attack
+        pgd_layers=lat_config['pgd_layers'],  # what layers to attack
         pgd_iterations_per_step=lat_config['pgd_iterations_per_step'],  # how many steps of projected gradient descent to do
         model_layers=list(range(0, model.config.num_hidden_layers)),  # model layers to train
         epsilon=epsilon,  # attack l2 constraint

@@ -2,7 +2,7 @@ import os
 import json
 from typing import List, Optional, Union
 import torch
-from datasets import load_dataset
+from datasets import load_dataset, Value, Sequence
 from dotenv import load_dotenv
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data import Dataset
@@ -214,6 +214,22 @@ def process_generic_chat_dataset(
 
     if system_prompt_column is not None:
         dataset = dataset.rename_column(system_prompt_column, "system_prompt")
+
+    # Ensure these text-ish columns are stored as strings in the Dataset schema
+    def _cast_text_features_to_string(ds, keys=("adv_completion", "def_completion", "prompt", "system_prompt")):
+        new_features = ds.features.copy()
+        changed = False
+        for k in keys:
+            if k in new_features:
+                feat = new_features[k]
+                if isinstance(feat, Sequence):
+                    new_features[k] = Sequence(Value("string"))
+                else:
+                    new_features[k] = Value("string")
+                changed = True
+        return ds.cast(new_features) if changed else ds
+
+    dataset = _cast_text_features_to_string(dataset)
     
     if map_fn is not None:
         dataset = dataset.map(map_fn, batched=True)
@@ -251,7 +267,6 @@ def process_generic_chat_dataset(
             else:
                 examples["def_completion"][i] = def_completion
                 examples["adv_completion"][i] = adv_completion
-        
         return examples
 
     dataset = dataset.map(

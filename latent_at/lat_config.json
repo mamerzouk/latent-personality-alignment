@@ -1,12 +1,12 @@
 {
   "pgd_iterations_per_step": 16,
   "model_iterations_per_step": 4,
-  "num_steps": 200,
+  "num_steps": 100,
   "max_batch_per_acc": 2,
   "l2_regularization": 0,
   "reinitialize_dev_optim": true,
-  "N_checkpoints": 20,
+  "N_checkpoints": 10,
   "adv_loss_coefs":{"toward": 0.5, "away": 0.5},
-  "def_loss_coefs":{"kl": 0.1, "toward": 0.5, "away": 0.5},
+  "def_loss_coefs":{"sft": 0, "toward": 0.5, "away": 0.5},
   "pgd_layers":["embedding", 8, 16, 24, 30]
 }

@@ -11,7 +11,6 @@ from peft import PeftModel
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument("--project_name", type=str, default="latent-personality-alignment")
     parser.add_argument("--run_id", type=str, required=True)
     parser.add_argument("--epoch", type=str, default=None)
@@ -20,10 +19,18 @@ def main():
     args = parser.parse_args()
 
     project_name = args.project_name
-    model_name = args.model_name
     run_id = args.run_id
     epoch = args.epoch
     project_path = "cache/"+project_name+"_"+run_id
+    
+    if os.path.exists(project_path):
+        with open(os.path.join(project_path, "parameters.json"), "r") as f:
+            parameters = json.load(f)
+    else:
+        raise Exception(f"Project path {project_path} does not exist. Please check the project name and run ID.")
+    
+
+    model_name = parameters["model_name"]
 
     if epoch is not None:
         project_path += "/checkpoint_"+epoch
@@ -49,13 +56,23 @@ def main():
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "left"
-    elif "zephyr" in model_name or "mistral" in model_name:
+    elif "Mistral" in model_name:
+        model_type = "mistral"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer.pad_token_id = tokenizer.unk_token_id
+        tokenizer.padding_side = "left"
+    elif "zephyr" in model_name:
         model_type = "zephyr"    
         tokenizer = AutoTokenizer.from_pretrained("HuggingFaceH4/zephyr-7b-beta")
         tokenizer.pad_token_id = tokenizer.unk_token_id
         tokenizer.padding_side = "left"
     elif "Qwen" in model_name:
         model_type = "qwen3"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        tokenizer.padding_side = "left"
+    elif "Olmo" in model_name or "OLMo" in model_name:
+        model_type = "olmo"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "left"

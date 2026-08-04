@@ -106,13 +106,23 @@ def load_model(model_name):
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "left"
-    elif "zephyr" in model_name or "mistral" in model_name:
+    elif "Mistral" in model_name:
+        model_type = "mistral"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer.pad_token_id = tokenizer.unk_token_id
+        tokenizer.padding_side = "left"
+    elif "zephyr" in model_name:
         model_type = "zephyr"    
         tokenizer = AutoTokenizer.from_pretrained("HuggingFaceH4/zephyr-7b-beta")
         tokenizer.pad_token_id = tokenizer.unk_token_id
         tokenizer.padding_side = "left"
     elif "Qwen" in model_name:
         model_type = "qwen3"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        tokenizer.padding_side = "left"
+    elif "Olmo" in model_name or "OLMo" in model_name:
+        model_type = "olmo"
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token_id = tokenizer.eos_token_id
         tokenizer.padding_side = "left"
@@ -135,6 +145,14 @@ def load_data(harmful_dataset, benign_dataset, tokenizer, model_type, system_pro
     elif model_type == "qwen3":  # Qwen 3 chat formatting
         use_tokenizer_template = False
         custom_prompt_template = "<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        custom_completion_template="{completion}"
+    elif model_type == "mistral":  # Mistral Instruct formatting (system folded into the user turn)
+        use_tokenizer_template = False
+        custom_prompt_template = "[INST] {system_prompt}\n\n{prompt} [/INST]"
+        custom_completion_template="{completion}"
+    elif model_type == "olmo":  # OLMo ChatML formatting (no <think> block)
+        use_tokenizer_template = False
+        custom_prompt_template = "<|im_start|>system\n{system_prompt}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
         custom_completion_template="{completion}"
     else:  # Zephyr chat formatting
         # for models like zephyr/mistral we don't use the system prompt templating
@@ -201,22 +219,37 @@ def get_trainer(model, model_type, lat_dataloader, sft_dataloader, lat_config, p
         def_loss_coefs = lat_config['def_loss_coefs']
         inner_learning_rate = 5e-2
         outer_learning_rate = 2e-5
-        epsilon = 6.0
         add_completions_pgd = False
     elif model_type == 'llama3': # use llama3-8b
         adv_loss_coefs = lat_config['adv_loss_coefs']
         def_loss_coefs = lat_config['def_loss_coefs']
         inner_learning_rate = 1e-3
         outer_learning_rate = 8e-5
-        epsilon = 6.0
         add_completions_pgd = True
     elif model_type == 'qwen3': # use qwen3-8b
         adv_loss_coefs = lat_config['adv_loss_coefs']
         def_loss_coefs = lat_config['def_loss_coefs']
         inner_learning_rate = 1e-3
         outer_learning_rate = 8e-5
-        epsilon = 6.0
+
         add_completions_pgd = True
+    elif model_type == 'mistral':  # Mistral-7B-Instruct-v0.3
+        adv_loss_coefs = lat_config['adv_loss_coefs']
+        def_loss_coefs = lat_config['def_loss_coefs']
+        inner_learning_rate = 1e-3
+        outer_learning_rate = 8e-5
+        add_completions_pgd = True
+    elif model_type == 'olmo':  # OLMo-3-7B-Instruct
+        adv_loss_coefs = lat_config['adv_loss_coefs']
+        def_loss_coefs = lat_config['def_loss_coefs']
+        inner_learning_rate = 1e-3
+        outer_learning_rate = 8e-5
+        add_completions_pgd = True
+    else:
+        raise Exception(f"No LAT hyperparameters configured for model_type '{model_type}'")
+
+    print("Adversary loss coefs:", adv_loss_coefs)
+    print("Defender loss coefs:", def_loss_coefs)
 
     pgd_trainer = ProjectedGradLAT(
         model=model,  # model
@@ -227,7 +260,7 @@ def get_trainer(model, model_type, lat_dataloader, sft_dataloader, lat_config, p
         pgd_layers=lat_config['pgd_layers'],  # what layers to attack
         pgd_iterations_per_step=lat_config['pgd_iterations_per_step'],  # how many steps of projected gradient descent to do
         model_layers=list(range(0, model.config.num_hidden_layers)),  # model layers to train
-        epsilon=epsilon,  # attack l2 constraint
+        epsilon=lat_config['epsilon'],  # attack l2 constraint
         inner_learning_rate=inner_learning_rate,  # adversary lr
         outer_learning_rate=outer_learning_rate,  # model lr
         model_iterations_per_step=lat_config['model_iterations_per_step'],  # how many times to train on each step
@@ -258,6 +291,22 @@ def main():
     parser.add_argument("--lat_config_path", type=str, default=os.path.join(os.path.dirname(__file__), 'lat_config.json'))
     parser.add_argument("--wandb-offline", action='store_true')
     parser.add_argument("--timestamp", type=str)
+    
+    # Optional arguments to override lat_config values
+    parser.add_argument("--pgd_iterations_per_step", type=int, default=None)
+    parser.add_argument("--model_iterations_per_step", type=int, default=None)
+    parser.add_argument("--num_steps", type=int, default=None)
+    parser.add_argument("--max_batch_per_acc", type=int, default=None)
+    parser.add_argument("--l2_regularization", type=float, default=None)
+    parser.add_argument("--reinitialize_dev_optim", type=bool, default=None)
+    parser.add_argument("--N_checkpoints", type=int, default=None)
+    parser.add_argument("--adv_toward", type=float, default=None, help="Adversarial loss coefficient for 'toward' term")
+    parser.add_argument("--adv_away", type=float, default=None, help="Adversarial loss coefficient for 'away' term")
+    parser.add_argument("--def_sft", type=float, default=None, help="Defender loss coefficient for 'sft' term")
+    parser.add_argument("--def_toward", type=float, default=None, help="Defender loss coefficient for 'toward' term")
+    parser.add_argument("--def_away", type=float, default=None, help="Defender loss coefficient for 'away' term")
+    parser.add_argument("--pgd_layers", type=str, default=None, help="JSON string with layer indices, e.g. '[\"embedding\", 8, 16, 24, 30]'")
+    parser.add_argument("--epsilon", type=float, default=None, help="L2 constraint for PGD attack")
     
 
 
@@ -303,6 +352,43 @@ def main():
             lat_config = json.load(f)
     else:
         raise Exception(f"LAT config file not found at {lat_config_path}")
+    
+    # Override lat_config with command-line arguments if provided
+    if args.pgd_iterations_per_step is not None:
+        lat_config['pgd_iterations_per_step'] = args.pgd_iterations_per_step
+    if args.model_iterations_per_step is not None:
+        lat_config['model_iterations_per_step'] = args.model_iterations_per_step
+    if args.num_steps is not None:
+        lat_config['num_steps'] = args.num_steps
+    if args.max_batch_per_acc is not None:
+        lat_config['max_batch_per_acc'] = args.max_batch_per_acc
+    if args.l2_regularization is not None:
+        lat_config['l2_regularization'] = args.l2_regularization
+    if args.reinitialize_dev_optim is not None:
+        lat_config['reinitialize_dev_optim'] = args.reinitialize_dev_optim
+    if args.N_checkpoints is not None:
+        lat_config['N_checkpoints'] = args.N_checkpoints
+    
+    # Override individual adv loss coefficients
+    if args.adv_toward is not None:
+        lat_config['adv_loss_coefs']['toward'] = args.adv_toward
+    if args.adv_away is not None:
+        lat_config['adv_loss_coefs']['away'] = args.adv_away
+    
+    # Override individual def loss coefficients
+    if args.def_sft is not None:
+        lat_config['def_loss_coefs']['sft'] = args.def_sft
+    if args.def_toward is not None:
+        lat_config['def_loss_coefs']['toward'] = args.def_toward
+    if args.def_away is not None:
+        lat_config['def_loss_coefs']['away'] = args.def_away
+    if args.pgd_layers is not None:
+        try:
+            lat_config['pgd_layers'] = json.loads(args.pgd_layers)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse pgd_layers JSON: {args.pgd_layers}") from e
+    if args.epsilon is not None:
+        lat_config['epsilon'] = args.epsilon
 
     peft_config = LoraConfig(
         r=64,
